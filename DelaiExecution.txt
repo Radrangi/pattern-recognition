@@ -1,0 +1,3 @@
+DelaiOuverture + ConversionHSV = 1.59Clustering = 8.28
+Noise Removal = 2.52
+Circularization = 82.44

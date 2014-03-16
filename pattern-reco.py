@@ -12,6 +12,7 @@ from skimage.color  import rgb2hsv,rgb2lab,hsv2rgb
 from skimage.morphology  import closing,opening,square
 from scipy.ndimage.morphology import distance_transform_edt
 
+import time 
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.cluster.vq import kmeans,kmeans2,vq
 import math
@@ -45,6 +46,7 @@ class Circle:
         self.radius = r
     def setcenter(self, c):
         self.center = c
+
 
 def loadImages(formatChange): 
     if formatChange:
@@ -176,58 +178,38 @@ def drawCircle(circle,img,color):
                 #print("coloration")
     return img
           
-""" 
-def circlePlacementOK(circle,img,color):
-    img2 = img
-    print circle.getcenter()
-    print circle.getradius()
-    center = circle.getcenter()
-    radius = circle.getradius()
-
-    
-    for i in range (center[0]-radius ,center[0]+radius):
-            for j in range (center[1]-radius,center[1]+radius):
-                if (circle.contains ([i,j])):
-                    img2 [i,j] = color
-    
-    count = np.count_nonzero(img -img2)
-    
-    return count == 0;
-"""
-
 def circularizationDistMap(img,clusters):
     go = True
     listCircle = []
     threshold = 5
+    
+    print "Go circularization"
+    
     for i in range (0,clusters):
         BinaryImg = (img == i)*1
         print("nbrDiff(img) = ", nbrDiff(BinaryImg))
-
+        """
         window = plt.figure(2)
         plt.imshow(BinaryImg,interpolation = 'nearest')
         plt.title("BinaryImg Avant While")
         plt.show()
+        """
         go = True
+        cmpt = 0
+        distMap= distance_transform_edt(BinaryImg)
         while (go):
-            distMap= distance_transform_edt(BinaryImg)
+
             """    
             window = plt.figure(1)
             plt.imshow(distMap,interpolation = 'nearest')
             plt.title("distMap dans le While")
             plt.show()
             """
-            
             maxIndex = np.unravel_index(distMap.argmax(), distMap.shape) #recherche de l'indice du maximum de distMap
             maxTest2 = distMap[maxIndex[0],maxIndex[1]]
-            """
-            maxTest = distMap.max()
-            if maxTest == maxTest2 :
-                print ("Le Max est le bon")
-            """
             # verification distmap(maxIndex) == distmap.max()
             circle = Circle ([maxIndex[0],maxIndex[1]],distMap[maxIndex[0],maxIndex[1]],i)
             BinaryImg = drawCircle(circle,BinaryImg,0)#On place le cercle sur l'img. Les points du cercle appartiennent mnt au fond
-
             #print ("diff originale - draw",nbrDiff(BinaryImg - tmp))
             """
             window = plt.figure(1)
@@ -240,51 +222,70 @@ def circularizationDistMap(img,clusters):
             
             if distMap[maxIndex[0],maxIndex[1]] < threshold:
                 go = False
-                print("Break du while.")
-                
-            print ('Iteration suivante ',"maxTest = ",maxTest2," maxIndex = ",maxIndex)
-    
+                mon_fichier.write("Break du while.")
+            
+            str_fichier = "Iteration suivante" + "maxTest = " + str(maxTest2) + " maxIndex = " + str(maxIndex)
+            mon_fichier.write(str_fichier+ '\n')
+            
+            distMap = distMapUpdate(distMap,BinaryImg, circle)
+           
+            
+
     return listCircle
+
+def distMapUpdate(distMap, binaryImg, placedCircle):
+    #doc pavement 2D tiling pour cercle?
+    #mettre a jour une partie de la dist map
+    #afficher la distrib des rayons
+    radiusCirc = (placedCircle.radius).astype(np.int16)
+    circCenter = placedCircle.center
+    upperLeftCoordX = circCenter[0] - 2* radiusCirc
+    upperLeftCoordY = circCenter[1] - 2* radiusCirc
+    mapToUpdate = np.ones((radiusCirc*4,radiusCirc*4))
+    #print upperLeftCoordX, upperLeftCoordY
+    #print radiusCirc
+    #print mapToUpdate.shape
     
-def circularization(img):
-    "Places the circles"
-    diff = nbrDiff(img)
-    go = True
-    minRadius = 5
-    print ("img = ", img.dtype, type(img),img.shape )
-
-    imgTmp = np.zeros_like(img)
-    print ("imgTmp1 = ", imgTmp.dtype, type(imgTmp),imgTmp.shape )
-
-    imgTmp = (img == diff[0])
-    print ("imgTmp2 = ", imgTmp.dtype, type(imgTmp),imgTmp.shape )
-
-    #imgTmp = img*imgTmp
-    """
-    imgTmp[0]= img[diff == 0]
-    imgTmp[1]= img[diff==1]
-    imgTmp[2]= img[diff==2]
+    upperLeftCoordX,upperLeftCoordY,limitX,limitY = ConsiderLimitsFrame(upperLeftCoordX,upperLeftCoordY,radiusCirc,binaryImg)
     
-    for c in range(0,len(diff)):
+    mapToUpdate = np.ones((limitX,limitY))
+
+    for i in range(0,limitX):
+        for j in range(0,limitY):
+            mapToUpdate[i,j] = binaryImg [upperLeftCoordX+i,upperLeftCoordY+j]
     
-        for i in range(0,imgTmp[c].shape[0]):
-            for j in range(0,imgTmp[c].shape[1]):
-            """
-    for i in range(0,imgTmp.shape[0]):
-            for j in range(0,imgTmp.shape[1]):
-                minRadius = 5
-                circle = Circle ([i,j],minRadius)
-                color = imgTmp[i,j]
-                while (circlePlacementOK(circle,img,color)):
-                    circle = Circle ([i,j],minRadius)
-                    if circlePlacementOK(circle,img,color) == False:
-                        placement.append([[i,j],radius,color])
-                    minRadius =+ 1 #minimal radius of interest
+    distMapUpdate = distance_transform_edt(mapToUpdate)
     
-    return placement
+    for i in range(limitX):
+        for j in range(limitY):
+            distMap[upperLeftCoordX+i,upperLeftCoordY+j] = distMapUpdate [i,j] 
+    
+    return distMap
+    
+def ConsiderLimitsFrame(upperLeftCoordX,upperLeftCoordY,radius,binaryImg):
+    shapeX = binaryImg.shape[0]
+    shapeY = binaryImg.shape[1]
+    upperX = upperLeftCoordX
+    upperY = upperLeftCoordY
+    limitX = 4*radius
+    limitY = 4*radius
+    
+    if (upperLeftCoordX < 0):
+        limitX = 4*radius +  upperLeftCoordX
+        upperX = 0
 
-
-
+    if (upperLeftCoordY < 0):
+        limitY = 4*radius +  upperLeftCoordY
+        upperY = 0
+        
+    if ((upperLeftCoordX + 4*radius) > shapeX):
+        limitX =  shapeX - upperLeftCoordX 
+        
+    if ((upperLeftCoordY + 4*radius) > shapeY):
+        limitY =  shapeY - upperLeftCoordY
+        
+    return upperX,upperY,limitX,limitY
+    
 def morphoNoiseRemoval(img):
     imgB = img
     for i in range(0,5):
@@ -294,33 +295,50 @@ def morphoNoiseRemoval(img):
 
 def formationImgCercle (listCircle,img):
     imgCircle = np.zeros_like(img)
-    print ("nbr cercles = ", len(listCircle))
+    mon_fichier.write("nbr cercles = ")
+    mon_fichier.write(str(len(listCircle)))
+                      
     for i in range (0,len(listCircle)):
-        print listCircle[i].getcenter(),listCircle[i].getradius(),listCircle[i].getcolor()
+        #print listCircle[i].getcenter(),listCircle[i].getradius(),listCircle[i].getcolor()
         imgCircle = drawCircle(listCircle[i],imgCircle,listCircle[i].getcolor()+1)
     
     return imgCircle
 
+
+mon_fichier = open ("Sortie_projet_feedback.txt", "w")#argh, everything is curshed
+mon_fichier2 = open("DelaiExecution.txt","w")
+
+tmps1 = time.clock()
 img = loadImages('false')
-print ("Original Image",img.dtype, type(img),img.shape)
+mon_fichier.write("Original Image :"+str(img.dtype) + str(type(img))+ str(img.shape)+ "\n")
 print ("pixel test Original = ", img[img.shape[0]/2,img.shape[1]/2,:])
-
-#img = changeFormat(img)
-
 imgHSV = convertHSV(img)
 print ("imgHSV : ", imgHSV.dtype, type(imgHSV),imgHSV.shape)
 print ("pixel test HSV = ", imgHSV[imgHSV.shape[0]/2,imgHSV.shape[1]/2,:])
+tmps2 = time.clock()
+mon_fichier2.write("DelaiOuverture + ConversionHSV = " + str (tmps2-tmps1))
 
 clusters = 4
+tmps1=time.clock()
 imgClus,code = clustering(imgHSV,clusters)
+tmps2 = time.clock()
+mon_fichier2.write("Clustering = " + str (tmps2-tmps1) + "\n")
+
+tmps1 = time.clock()
 imgClus = convertHSVtoRGB(imgClus)
 code2 = code.astype(np.uint8)
 morpho = morphoNoiseRemoval(code2)
 print ("Code = ", code.dtype, type(code),code.shape )
+tmps2 = time.clock()
+mon_fichier2.write("Noise Removal = " + str(tmps2-tmps1)+ "\n")
+tmps1 = time.clock()
 lcircle = circularizationDistMap(code2,clusters)
+tmps2=time.clock()
+mon_fichier2.write("Circularization = " + str(tmps2-tmps1) + "\n")
+
 imgCirc = formationImgCercle (lcircle,code2)
 
-
+mon_fichier.close()
 """
 #circularization(code)
 #imgClus2 = convertHSVtoRGB(clustering2(imgHSV,clusters))
