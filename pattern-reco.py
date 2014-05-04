@@ -14,19 +14,28 @@ import matplotlib.delaunay as triang
 from matplotlib import colors
 import matplotlib.tri as tria
 
+from pymorph import open as opening2
+from pymorph import close as closing2
+
+
 from skimage.color  import rgb2hsv,rgb2lab,hsv2rgb
-from skimage.morphology  import closing,opening,square
+from skimage.morphology  import closing,opening,square #abandonned because return a untin8 array
+from skimage.filter.rank import median
+from skimage.morphology import disk
 
 from scipy.ndimage.morphology import distance_transform_edt
 from scipy.cluster.vq import kmeans,kmeans2,vq
 from scipy.spatial import Delaunay
-
+from scipy.ndimage.filters import median_filter as median2
 from mpl_toolkits.mplot3d import Axes3D
 
 import itertools
 import time
 import math
 
+import Tkinter
+import tkFileDialog
+import os
 #import pylab
 
 class Circle:
@@ -59,14 +68,17 @@ class Circle:
     def setcenter(self, c):
         self.center = c
 
-def loadImages(formatChange): 
-    if formatChange:
-        return changeFormat(plt.imread("./images/AB05.png"))
+def loadImages(imgPath,custom):
+    if custom == True :
+        img =  plt.imread(imgPath)
+    
     else:
-        return plt.imread("./images/AB05.png")
+        img =  plt.imread("./images/AB05.png")
+        
+    img = (255*img).astype(np.uint8)
+    
+    return img
 
-def changeFormat(img):
-    return (255*img).astype(np.uint8)
     
 def convertHSV(img):
     "convert into HSV color Space"
@@ -110,11 +122,8 @@ def clustering(img,clusters):
     #Reshaping image in list of pixels to allow kmean Algorithm
     #From 1792x1792x3 to 1792^2x3
     pixels = np.reshape(img,(img.shape[0]*img.shape[1],3))
-    #print ("pixels in Clustering : ",pixels.dtype,pixels.shape,type(pixels))
     #performing the clustering
     centroids,_ = kmeans(pixels,clusters,iter=3)
-    #print ("Centroids : ",centroids.dtype,centroids.shape,type(centroids))
-    #print centroids
     # quantization
     #Assigns a code from a code book to each observation
     #code : A length N array holding the code book index for each observation.
@@ -136,7 +145,6 @@ def clustering(img,clusters):
     #print ("nbrDiff de Clustered 2 = " ,nbrDiff(clustered[:,:,2]))
 
     #print nbrDiff(reshaped)
-    #standardCode = standardisationCode(reshaped,clustered)
     return clustered,reshaped,standardCode
 
 def standardisationCode(code,imgClus):
@@ -224,11 +232,12 @@ def drawCircle(circle,img,color):
                 #print("coloration")
     return img
           
-def circularizationDistMap(img,standard):
+def circularizationDistMap(img,standard,mon_fichier):
     go = True
     listCircle = []
     threshold = 8
-    
+    print("nbrDiff(img) = ", nbrDiff(img))
+
     print "Go circularization"
     
     for i in range (len(standard)):
@@ -312,13 +321,14 @@ def ConsiderLimitsFrame(lowerLeftCoordX,lowerLeftCoordY,radius,binaryImg):
     return lowerX,lowerY,limitX,limitY
     
 def morphoNoiseRemoval(img):
-    imgB = img
+    
     for i in range(0,5):
-        imgB = opening (imgB, square(3))
-        imgB = closing (imgB, square(3))
-    return imgB
+        img = opening2(img, square(3))
+        img = closing2(img, square(3))
+        
+    return img
 
-def formationImgCercle (listCircle,img):
+def formationImgCercle (listCircle,img,mon_fichier):
     imgCircle = np.zeros_like(img)
     mon_fichier.write("nbr cercles = ")
     mon_fichier.write(str(len(listCircle)))
@@ -329,7 +339,7 @@ def formationImgCercle (listCircle,img):
     
     return imgCircle
 
-def delaunayTriangulation3(lcircle):
+def delaunayTriangulation3(lcircle,mon_fichier3):
     points = []
     coordCentersX = []
     coordCentersY = []
@@ -347,7 +357,7 @@ def delaunayTriangulation3(lcircle):
 
     return tri,coordCentersX,coordCentersY,points
 
-def colorizedDelaunay3(tri,coordCentersX,coordCentersY,lcircle,imgCirc,points):
+def colorizedDelaunay3(tri,coordCentersX,coordCentersY,lcircle,imgCirc,points,mon_fichier4):
     ""
     # Make a list of line segments: 
     # edge_points = [ ((x1_1, y1_1), (x2_1, y2_1)),
@@ -381,7 +391,7 @@ def colorizedDelaunay3(tri,coordCentersX,coordCentersY,lcircle,imgCirc,points):
     return lines,pointsTest
 
 def showColorisedDelaunayGraph(lines,points):
-    
+    "Draw the colorised graph considering the node propreties. "
     plt.figure()
     plt.title('Delaunay triangulation Colorized')
     plt.gca().add_collection(lines)
@@ -461,7 +471,7 @@ def colorChoice(a,b):
     return color
 
 def colorizedDelaunay(tri,coordCentersX,coordCentersY,lcircle):
-    
+    "Basic coloration function for simple vue of the Triangulation. No consideration of node propreties"
     plt.triplot(coordCentersX, coordCentersY, tri.vertices.copy())#manage triangle edges color here
     plt.plot(coordCentersX, coordCentersY, 'o', markersize=1,markerfacecolor='green', markeredgecolor='red')
     plt.show()
@@ -469,14 +479,14 @@ def colorizedDelaunay(tri,coordCentersX,coordCentersY,lcircle):
     return
 
 def mouseClick(imgClick,nbrClick):
-    #print  "shape ImgClick = ",  imgClick.shape
-    window2 = plt.figure(2)
+    "Allows the user to tell the program what color is lumina,cancer,nuclear,stroma"
+    
     plt.imshow(imgClick,origin='lower')
     print("Please click" + str(nbrClick) +" times. ")
     print ("In order : Lumina, brown(cancer), nuclear (blue) , stoma (beige),fond")
     coord = plt.ginput(nbrClick, timeout=0, show_clicks=True)
     print("clicked",coord)
-    plt.show()
+    plt.close()
     x = []
     y = []
     listDiff=[]
@@ -485,17 +495,24 @@ def mouseClick(imgClick,nbrClick):
         y.append(xTemp.astype(np.uint16)) #Because Fuck you! That's why!
         x.append(yTemp.astype(np.uint16))#ginput reverse x and y when clicking on an image
         #i hate you ginput
-        listDiff.append(imgClick[x[i],y[i]])
+        #listDiff.append(imgClick[x[i],y[i]])
     
     print imgClick[x[0],y[0]],imgClick[x[1],y[1]],imgClick[x[2],y[2]],imgClick[x[3],y[3]]#,imgClick[x[4],y[4]]
     
-    return x,y,listDiff
+    return x,y
+
+def etablishCodeLink(code,x,y):
+    listDiff= []
+    for i in range (len(x)):        
+        listDiff.append(code[x[i],y[i]])
+    
+    return listDiff
 
 def standardCode(img,listDiff):
-     "using a standard code to identify lumina,cancer,nuclear,stromal parts"
+     "use a standard code to identify lumina,cancer,nuclear,stromal parts. After this function, lumina = 10,cancer = 100, nuclear = 1000, stroma = 10000"
      #[lumina, cancer, noyau,stroma]
      #standard = [10,15,20,25]
-     standard = [10,100,1000,10000]
+     standard = [10,100,1000,10000] #the standard used to represent lumina,cancer,nuclear,stromal parts
      imgStandard = np.zeros_like(img, dtype=np.uint16)
 
      for i in range (img.shape[0]):
@@ -514,120 +531,168 @@ def customColorMap():
     norm = colors.BoundaryNorm(bounds, cmap.N)
     return cmap,norm
 
-mon_fichier = open ("Sortie_projet_feedback.txt", "w")#argh, everything is curshed
-mon_fichier2 = open("DelaiExecution.txt","w")
-mon_fichier3 = open("Triangles delaunay","w")
-mon_fichier4 = open("colorization Triangulation 3","w")
+def initFiles():
+    "create some files for output results"
+    mon_fichier = open ("Sortie_projet_feedback.txt", "w")#argh, everything is curshed
+    mon_fichier2 = open("DelaiExecution.txt","w")
+    mon_fichier3 = open("Triangles delaunay","w")
+    mon_fichier4 = open("colorization Triangulation 3","w")
+    return mon_fichier,mon_fichier2,mon_fichier3,mon_fichier4
 
-tmps1 = time.clock()
-img = loadImages('false')
-mon_fichier.write("Original Image :"+str(img.dtype) + str(type(img))+ str(img.shape)+ "\n")
-#print ("pixel test Original = ", img[img.shape[0]/2,img.shape[1]/2,:])
-imgHSV = convertHSV(img)
-#print ("imgHSV : ", imgHSV.dtype, type(imgHSV),imgHSV.shape)
-#print ("pixel test HSV = ", imgHSV[imgHSV.shape[0]/2,imgHSV.shape[1]/2,:])
-tmps2 = time.clock()
-mon_fichier2.write("DelaiOuverture + ConversionHSV = " + str (tmps2-tmps1))
+def closeFiles(mon_fichier,mon_fichier2,mon_fichier3,mon_fichier4):
+    "close the opened output files by initFiles"
+    mon_fichier.close()
+    mon_fichier2.close()
+    mon_fichier3.close()
+    mon_fichier4.close()
+    return
 
-clusters = 4
-tmps1=time.clock()
-imgClus,code,standardCode = clustering(imgHSV,clusters)
-tmps2 = time.clock()
-mon_fichier2.write("Clustering = " + str (tmps2-tmps1) + "\n")
-tmps1 = time.clock()
-imgClus = convertHSVtoRGB(imgClus)
-code2 = code.astype(np.uint8)
-morpho = morphoNoiseRemoval(code2)
+def fileChooserTinker():
+    "Window to allow image selection"
+    custom = False
 
-cmap_Custom,Norm = customColorMap()
+    root = Tkinter.Tk()
+    file = tkFileDialog.askopenfile(parent=root,mode='rb',title='Choose a Image file to process')
+    root.withdraw()
+    
+    if file != None:
+        custom = True
+    
+    return file,custom
 
-_,_,listDiff = mouseClick(morpho,4)
-morphoStandard,standard = standardCode(morpho,listDiff)
+def main():
+    
+    tmps1 = time.clock()
+    mon_fichier,mon_fichier2,mon_fichier3,mon_fichier4 = initFiles() #initialize outputfiles
+    clusters = 4    
+    cmap_Custom,Norm = customColorMap()#create custom color map
+    mon_fichier2.write("Temps Initialisation = " + str (time.clock()-tmps1))
+    
+    "Allow a choice of the image to be processed"
+    imgPath,custom = fileChooserTinker()
+    tmps1 = time.clock()
+    img = loadImages(imgPath,custom) #load img
+    mon_fichier2.write("Temps Chargement Img = " + str (time.clock()-tmps1))
+
+    #mon_fichier.write("Original Image :"+str(img.dtype) + str(type(img))+ str(img.shape)+ "\n")
+    #mon_fichier.write("imgHSV : "+ str(imgHSV.dtype) +str(type(imgHSV)) + str(imgHSV.shape)+"\n")
+    #mon_fichier.write("pixel test HSV = "+ str(imgHSV[imgHSV.shape[0]/2,imgHSV.shape[1]/2,:])+"\n")
+    
+    "Convert image to HSV"
+    tmps1 = time.clock()
+    imgHSV = convertHSV(img)
+    mon_fichier2.write("Temps ConversionHSV = " + str (time.clock()-tmps1))
+    
+    "Color Clustering"
+    tmps1=time.clock()
+    imgClus,code,standardCode = clustering(imgHSV,clusters)
+    mon_fichier2.write("Clustering = " + str (time.clock()-tmps1) + "\n")
+    
+    "Denoise a first time"
+    code = median2(code, size = 5)
+    
+    "Color Standardisation for lumina,cancer,Nuclear and stromal parts"
+    #code2 = code.astype(np.uint8)
+    print code.shape ,  nbrDiff(code)
+    imgClus = convertHSVtoRGB(imgClus)
+    x,y = mouseClick(imgClus,clusters)
+    listDiff = etablishCodeLink(code,x,y)
+    
+
+    clusStandard,standard = standardCode(code,listDiff)
+    print "ClusStandard = " , nbrDiff(clusStandard)
+    
+    "Noise Removal"
+    tmps1 = time.clock()
+    morpho = morphoNoiseRemoval(clusStandard)
+    print "morpho = " , nbrDiff(morpho)
+
+    #mon_fichier.write("Code = " + str(code.dtype)+str( type(code))+str(code.shape))
+    mon_fichier2.write("Noise Removal = " + str(time.clock()-tmps1)+ "\n")
+    
+    """
+    window1 = plt.figure(1)
+    plt.title('IMG Cercle Standard')
+    plt.imshow(morphoStandard,origin = 'lower',interpolation = 'nearest',cmap= cmap_Custom,norm = Norm)
+    plt.colorbar()
+    plt.show()
+    """
+    
+    "Calculate Circle placement position"
+    tmps1=time.clock()
+    lcircle = circularizationDistMap(morpho,standard,mon_fichier)
+    mon_fichier2.write("Circularization = " + str(time.clock()-tmps1) + "\n")
+    
+    "Create img composed of circles"
+    tmps1 = time.clock()
+    imgCirc = formationImgCercle (lcircle,morpho,mon_fichier)
+    mon_fichier2.write("formation Img Cercle = " + str(time.clock()-tmps1) + "\n")
+
+    #x,y = mouseClick(imgCirc,5)
+    #cens,edg,tri,neig = delaunayTriangulation(lcircle)
+    #delaunayTriangulation2(lcircle)
+    #ImgCircStandard = standardisationCouleur(imgCirc,x,y)
+    
+    "Triangulation de Delaunay"
+    tmps1 = time.clock()
+    tri,coordCentersX,coordCentersY,points = delaunayTriangulation3(lcircle,mon_fichier3)
+    mon_fichier2.write("Triangulation Delaunay = " + str(time.clock()-tmps1) + "\n")
+    
+    "Colorisation de la triangulation"
+    colorizedDelaunay(tri,coordCentersX,coordCentersY,lcircle)
+    #colorizedDelaunay2(tri,coordCentersX,coordCentersY,lcircle,imgCirc)
+    graph,pointsTemp = colorizedDelaunay3(tri,coordCentersX,coordCentersY,lcircle,imgCirc,points,mon_fichier4)
+    mon_fichier2.write("Triangulation Delaunay = " + str(time.clock()-tmps1) + "\n")
 
 
-print nbrDiff(morphoStandard)
+    """
+    #circularization(code)
+    #imgClus2 = convertHSVtoRGB(clustering2(imgHSV,clusters))
+    kmeanHSV1 = kmeansAlgo(imgHSV)
+    kmean2 = kmeansAlgo2(img)
+    kmeanHSV2 = kmeansAlgo2(imgHSV)
+    #imgLAB = convertLAB(img) 
+    """
+    
+    window1 = plt.figure(1)
+    plt.title('IMG Cercle')
+    plt.imshow(imgCirc,origin='lower',interpolation = 'nearest',cmap= cmap_Custom,norm = Norm)
+    plt.colorbar()
 
-"""
-window1 = plt.figure(1)
-plt.title('IMG Cercle Standard')
-plt.imshow(morphoStandard,origin = 'lower',interpolation = 'nearest',cmap= cmap_Custom,norm = Norm)
-plt.colorbar()
-plt.show()
-"""
-
-mon_fichier2.write("Code = " + str(code.dtype)+str( type(code))+str(code.shape))
-tmps2 = time.clock()
-mon_fichier2.write("Noise Removal = " + str(tmps2-tmps1)+ "\n")
-tmps1 = time.clock()
-lcircle = circularizationDistMap(morphoStandard,standard)
-tmps2=time.clock()
-mon_fichier2.write("Circularization = " + str(tmps2-tmps1) + "\n")
-tmps1 = time.clock()
-
-imgCirc = formationImgCercle (lcircle,morphoStandard)
-mon_fichier2.write("formation Img Cercle = " + str(time.clock()-tmps1) + "\n")
-
-#x,y = mouseClick(imgCirc,5)
-#cens,edg,tri,neig = delaunayTriangulation(lcircle)
-#delaunayTriangulation2(lcircle)
-#ImgCircStandard = standardisationCouleur(imgCirc,x,y)
-
-tmps1 = time.clock()
-
-tri,coordCentersX,coordCentersY,points = delaunayTriangulation3(lcircle)
-mon_fichier2.write("Triangulation Delaunay = " + str(time.clock()-tmps1) + "\n")
-
-colorizedDelaunay(tri,coordCentersX,coordCentersY,lcircle)
-#colorizedDelaunay2(tri,coordCentersX,coordCentersY,lcircle,imgCirc)
-graph,pointsTemp = colorizedDelaunay3(tri,coordCentersX,coordCentersY,lcircle,imgCirc,points)
+    window1 = plt.figure(3)
+    plt.title('IMG Originale')
+    plt.imshow(img,origin='lower', interpolation = 'nearest')
 
 
-mon_fichier.close()
-mon_fichier2.close()
-mon_fichier4.close()
-"""
-#circularization(code)
-#imgClus2 = convertHSVtoRGB(clustering2(imgHSV,clusters))
-kmeanHSV1 = kmeansAlgo(imgHSV)
-kmean2 = kmeansAlgo2(img)
-kmeanHSV2 = kmeansAlgo2(imgHSV)
-#imgLAB = convertLAB(img) 
-"""
+    showColorisedDelaunayGraph(graph,pointsTemp) 
+    
+    "Closes the files openend for output stream"
+    closeFiles(mon_fichier,mon_fichier2,mon_fichier3,mon_fichier4)
 
-window1 = plt.figure(1)
-plt.title('IMG Cercle')
-plt.imshow(imgCirc,origin='lower',interpolation = 'nearest',cmap= cmap_Custom,norm = Norm)
-plt.colorbar()
+    return
 
-window1 = plt.figure(3)
-plt.title('IMG Originale')
-plt.imshow(img,origin='lower', interpolation = 'nearest')
+if __name__ == "__main__":
+    main()
 
-window1 = plt.figure(2)
-plt.title('morphoStandard')
-plt.imshow(morphoStandard,interpolation = 'nearest',cmap= cmap_Custom,norm = Norm)
-plt.colorbar()
-#window = plt.figure(5)
-#plt.imshow(standardCode,interpolation = 'nearest')
-#plt.title("Apres Clustering Standard")
-showColorisedDelaunayGraph(graph,pointsTemp)
 
-"""
-window1 = plt.figure(1)
-plt.title('IMG Originale')
-plt.imshow(morphoStandard,interpolation = 'nearest')
-window = plt.figure(2)
-plt.imshow(imgClus,interpolation = 'nearest')
-plt.title("Apres Clustering")
-window = plt.figure(3)
-plt.imshow(morpho,interpolation = 'nearest')
-plt.title("Apres operateurs Morpho")
-window = plt.figure(4)
-plt.imshow(code2,interpolation = 'nearest')
-plt.title("Avant operateurs Morpho")
-plt.show()
-window2= plt.figure(2)
-plt.imshow(imgClus2)
-plt.title("After Clustering2")
-plt.show()
-"""
+    
+    
+    """
+    window1 = plt.figure(1)
+    plt.title('IMG Originale')
+    plt.imshow(morphoStandard,interpolation = 'nearest')
+    window = plt.figure(2)
+    plt.imshow(imgClus,interpolation = 'nearest')
+    plt.title("Apres Clustering")
+    window = plt.figure(3)
+    plt.imshow(morpho,interpolation = 'nearest')
+    plt.title("Apres operateurs Morpho")
+    window = plt.figure(4)
+    plt.imshow(code2,interpolation = 'nearest')
+    plt.title("Avant operateurs Morpho")
+    plt.show()
+    window2= plt.figure(2)
+    plt.imshow(imgClus2)
+    plt.title("After Clustering2")
+    plt.show()
+    """
