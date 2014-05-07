@@ -10,9 +10,10 @@ import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.pyplot import cm
 from matplotlib.collections import LineCollection
-import matplotlib.delaunay as triang
+
+#from matplotlib import delaunay as triang
 from matplotlib import colors
-import matplotlib.tri as tria
+#from matplotlib import tri as tria
 
 from pymorph import open as opening2
 from pymorph import close as closing2
@@ -27,7 +28,6 @@ from scipy.ndimage.morphology import distance_transform_edt
 from scipy.cluster.vq import kmeans,kmeans2,vq
 from scipy.spatial import Delaunay
 from scipy.ndimage.filters import median_filter as median2
-from mpl_toolkits.mplot3d import Axes3D
 
 import itertools
 import time
@@ -69,6 +69,7 @@ class Circle:
         self.center = c
 
 def loadImages(imgPath,custom):
+    "charge l'image test ou l'image choisie par l'utilisateur dans un numpy array"
     if custom == True :
         img =  plt.imread(imgPath)
     
@@ -81,7 +82,7 @@ def loadImages(imgPath,custom):
 
     
 def convertHSV(img):
-    "convert into HSV color Space"
+    "convert RGBA into HSV color Space"
     if img.shape[2]==4:
         return rgb2hsv(img[:,:,0:3])
     else:
@@ -91,10 +92,11 @@ def convertHSV(img):
             print ("Image format not supported")
  
 def convertHSVtoRGB(img):
+    "convert colors from HSV to RGB "
     return hsv2rgb(img)
 
 def convertLAB(img):
-    "convert into LAB color space"
+    "convert an RGB img into LAB color space"
     if img.shape[2]==4:
         return rgb2lab(img[:,:,0:3])
     else:
@@ -104,7 +106,7 @@ def convertLAB(img):
             print ("Image format not supported")
             
 def nbrDiff(img):
-    "count the number of different element in an array"
+    "count the number of different element in an array and their occurence"
     diff = []
     cmpt = []
     for i in range(0,img.shape[0]):
@@ -120,14 +122,14 @@ def nbrDiff(img):
 def clustering(img,clusters):
     "use the kmean algo to cluster img colors"
     #Reshaping image in list of pixels to allow kmean Algorithm
-    #From 1792x1792x3 to 1792^2x3
+    #From 1792x1792x3 to (1792^2)x3
     pixels = np.reshape(img,(img.shape[0]*img.shape[1],3))
+    #clustering is done on hue value of a pixel color
     #performing the clustering
     centroids,_ = kmeans(pixels,clusters,iter=3)
     # quantization
     #Assigns a code from a code book to each observation
     #code : A length N array holding the code book index for each observation.
-    #dist : The distortion (distance) between the observation and its nearest code.
     code,_ = vq(pixels,centroids)
     #print ("Code : ",code.dtype,code.shape,type(code))
 
@@ -147,42 +149,8 @@ def clustering(img,clusters):
     #print nbrDiff(reshaped)
     return clustered,reshaped,standardCode
 
-def standardisationCode(code,imgClus):
-    "To always have the same code for the different colors - Does not work"
-    StandardCode = np.zeros_like(imgClus)
-    
-    for i in range (imgClus.shape[0]):
-       for j in range (imgClus.shape[1]):
-           if (abs(imgClus[i,j,1] - 0.08426584056974025) < 0.01):
-               StandardCode[i,j] = 1
-           else: 
-               if (abs(imgClus[i,j,1] - 0.097370640760267024) < 0.01):
-                   StandardCode[i,j] = 3
-               else:  
-                   if (abs(imgClus[i,j,1] - 0.12959040866125687) < 0.01):
-                       StandardCode[i,j] = 2
-                   else:
-                       if (abs(imgClus[i,j,1] - 0.33117686721545525) < 0.01):
-                           StandardCode[i,j] = 4
-                           
-    lumina = imgClus[100,100]
-    brown = imgClus [1270,989]
-    blue = imgClus [510,108]
-    stroma = imgClus [1580,792]
-    print (lumina,brown,blue,stroma)
-    """
-    print (lumina,brown,blue,stroma)
-    # palette must be given in sorted order
-    palette = [lumina,brown,blue,stroma]
-    # key gives the new values you wish palette to be mapped to.
-    key = np.array([1,2,3,4])
-    index = np.digitize(code.reshape(-1,), palette)-1
-    
-    print(key[index])#.reshape(a.shape))
-    """
-    return StandardCode
-
 def clustering2(img,clusters):
+    "another clustering method - no major differences"
     #Reshaping image in list of pixels to allow kmean Algorithm
     #From 1792x1792x3 to 1792^2x3
     pixels = np.reshape(img,(img.shape[0]*img.shape[1],3))
@@ -208,7 +176,7 @@ def clustering2(img,clusters):
     return clustered
 
 def drawCircle(circle,img,color):
-    
+    "Draw a circle of a given color on a map"
     borneInfX= (circle.getcenter()[0]-circle.getradius()).astype(np.int16)
     borneSupX= (circle.getcenter()[0]+circle.getradius()).astype(np.int16)
     borneInfY= (circle.getcenter()[1]-circle.getradius()).astype(np.int16)
@@ -232,31 +200,33 @@ def drawCircle(circle,img,color):
                 #print("coloration")
     return img
           
-def circularizationDistMap(img,standard,mon_fichier):
+def circularizationDistMap(img,standard,mon_fichier,threshold):
+    "Uses a partially updated distance map to place a minimum of circles of maximum radius on a clusterised color image"
     go = True
     listCircle = []
-    threshold = 8
+
     print("nbrDiff(img) = ", nbrDiff(img))
 
     print "Go circularization"
     
     for i in range (len(standard)):
-        BinaryImg = (img == standard[i])*1
-        print("nbrDiff(img) = ", nbrDiff(BinaryImg))
-
+        #iterate on the different colors
+        BinaryImg = (img == standard[i])*1 #A distance map needs a binary image
+        #print("nbrDiff(img) = ", nbrDiff(BinaryImg))
         go = True
         cmpt = 0
-        distMap= distance_transform_edt(BinaryImg)
+        distMap= distance_transform_edt(BinaryImg)#calculate the first distMap
+        
         while (go):
             maxIndex = np.unravel_index(distMap.argmax(), distMap.shape) #recherche de l'indice du maximum de distMap
-            maxTest2 = distMap[maxIndex[0],maxIndex[1]]
+            maxTest2 = distMap[maxIndex[0],maxIndex[1]] #no point of doing that except verification purpose
             # verification distmap(maxIndex) == distmap.max()
             circle = Circle ([maxIndex[0],maxIndex[1]],distMap[maxIndex[0],maxIndex[1]],standard[i])
             BinaryImg = drawCircle(circle,BinaryImg,0)#On place le cercle sur l'img. Les points du cercle appartiennent mnt au fond
-            listCircle.append(circle)#memorize les centres et rayon des cercles
-            #print (listCircle)
+            listCircle.append(circle)#memorise les centres et rayon des cercles
             
             if distMap[maxIndex[0],maxIndex[1]] < threshold:
+                #If circle size smaller threshold
                 go = False
                 mon_fichier.write("Break du while.")
             
@@ -264,13 +234,13 @@ def circularizationDistMap(img,standard,mon_fichier):
             mon_fichier.write(str_fichier+ '\n')
             
             distMap = distMapUpdate(distMap,BinaryImg, circle)
+            #update a part of the distance map
 
     return listCircle
 
 def distMapUpdate(distMap, binaryImg, placedCircle):
-    #doc pavement 2D tiling pour cercle?
-    #mettre a jour une partie de la dist map
-    #afficher la distrib des rayons
+    "Update a part of the distance map"
+
     radiusCirc = (placedCircle.radius).astype(np.int16)
     circCenter = placedCircle.center
     lowerLeftCoordX = circCenter[0] - 2* radiusCirc
@@ -297,6 +267,7 @@ def distMapUpdate(distMap, binaryImg, placedCircle):
     return distMap
     
 def ConsiderLimitsFrame(lowerLeftCoordX,lowerLeftCoordY,radius,binaryImg):
+    "Returns the limits of the dist map to update considering the limits of the image"
     shapeX = binaryImg.shape[0]
     shapeY = binaryImg.shape[1]
     lowerX = lowerLeftCoordX
@@ -321,7 +292,7 @@ def ConsiderLimitsFrame(lowerLeftCoordX,lowerLeftCoordY,radius,binaryImg):
     return lowerX,lowerY,limitX,limitY
     
 def morphoNoiseRemoval(img):
-    
+    "Removes noise by succession of 5 opening/closing morphological operators"
     for i in range(0,5):
         img = opening2(img, square(3))
         img = closing2(img, square(3))
@@ -329,26 +300,28 @@ def morphoNoiseRemoval(img):
     return img
 
 def formationImgCercle (listCircle,img,mon_fichier):
+    "Use the list of circle found with circularizationDistMap to draw the image composed exclusively of circle and representing the original image"
     imgCircle = np.zeros_like(img)
     mon_fichier.write("nbr cercles = ")
     mon_fichier.write(str(len(listCircle)))
                       
     for i in range (0,len(listCircle)):
-        #print listCircle[i].getcenter(),listCircle[i].getradius(),listCircle[i].getcolor()
         imgCircle = drawCircle(listCircle[i],imgCircle,listCircle[i].getcolor())
     
     return imgCircle
 
 def delaunayTriangulation3(lcircle,mon_fichier3):
+    "Apply a Delaunauy triangulation on the centers of the circles given by circularizationDistMap"
     points = []
     coordCentersX = []
     coordCentersY = []
     
     for i in range(len(lcircle)):
         points.append(lcircle[i].getcenter())
-        coordCentersX.append(lcircle[i].getcenter()[0])
-        coordCentersY.append(lcircle[i].getcenter()[1])
-    print points
+        coordCentersX.append(lcircle[i].getcenter()[0])#could be avoided 
+        coordCentersY.append(lcircle[i].getcenter()[1])#could be avoided 
+    
+    #print points
     #y = [i[0] for i in x] #From list of tuples to list of integrers
     
     tri = Delaunay(points)
@@ -358,7 +331,7 @@ def delaunayTriangulation3(lcircle,mon_fichier3):
     return tri,coordCentersX,coordCentersY,points
 
 def colorizedDelaunay3(tri,coordCentersX,coordCentersY,lcircle,imgCirc,points,mon_fichier4):
-    ""
+    "Make a list of all the segments composing the triangulation, remove the redundant ones and determine the color that the segment should have based on the node propreties"
     # Make a list of line segments: 
     # edge_points = [ ((x1_1, y1_1), (x2_1, y2_1)),
     #                 ((x1_2, y1_2), (x2_2, y2_2)),
@@ -366,29 +339,23 @@ def colorizedDelaunay3(tri,coordCentersX,coordCentersY,lcircle,imgCirc,points,mo
     pointsTest = np.array(points)
     edge_points = []
     edges = set()
-    colorsEdges = []
-    print pointsTest
-    print edges
+    colorsEdge = []
+    #print pointsTest
+    #print edges
     
     # loop over triangles: 
     # ia, ib, ic = indices of corner points of the triangle
     for ia, ib, ic in tri.vertices:
-        print ia,ib,ic
-        edge_points,edges,colors = add_edge(ia, ib,edge_points,edges,pointsTest,imgCirc,colorsEdges)
-        edge_points,edges,colors = add_edge(ib, ic,edge_points,edges,pointsTest,imgCirc,colorsEdges)
-        edge_points,edges,colors = add_edge(ic, ia,edge_points,edges,pointsTest,imgCirc,colorsEdges)
+        edge_points,edges,colorsEdge = add_edge(ia, ib,edge_points,edges,pointsTest,imgCirc,colorsEdge)
+        edge_points,edges,colorsEdge = add_edge(ib, ic,edge_points,edges,pointsTest,imgCirc,colorsEdge)
+        edge_points,edges,colorsEdge = add_edge(ic, ia,edge_points,edges,pointsTest,imgCirc,colorsEdge)
     
     mon_fichier4.write("edges :"+ str(edges)+"\n")
     mon_fichier4.write("edge_points :"+ str(edges)+"\n")
 
-    lines = LineCollection(edge_points,colors = colorsEdges,linewidths=1)
-    """
-    fig, ax = plt.subplots()
-    ax.add_collection(lines)
-    ax.autoscale()
-    ax.margins(0.1)
-    """
-    return lines,pointsTest
+    lines = LineCollection(edge_points,colors = colorsEdge,linewidths=1)#All the lines with their associated color
+
+    return lines,pointsTest,colorsEdge
 
 def showColorisedDelaunayGraph(lines,points):
     "Draw the colorised graph considering the node propreties. "
@@ -424,6 +391,7 @@ def colorChoice(a,b):
     So there are 10 possible colors to attribute to the edge.
     a-a a-b a-c a-d b-b b-c b-d c-c c-d d-d
     """
+    #different standard tested for optimal visualization
     standardColors = ['black',
                       'LightYellow', #a-a
                       'orange', #a-b
@@ -462,11 +430,24 @@ def colorChoice(a,b):
                       'SteelBlue',#c-d
                       'black',#d-d
                       ]
-    standardSum = [0,20,110,1010,10010,200,1100,10100,2000,11000,20000]
+    standardColors4 = ['black',
+                      'White', #a-a
+                      'White', #a-b
+                      'White',#a-c
+                      'White',#a-d
+                      'brown',#b-b
+                      'DarkViolet',#b-c
+                      'Chocolate',#b-d
+                      'blue',#c-c
+                      'green',#c-d
+                      'Silver',#d-d
+                      ]
+    standardSum = [0,20,110,1010,10010,200,1100,10100,2000,11000,20000] 
+    #because of the standard used, the sum of the node propreties is unique for each combination
     #print "a+b = ", a+b
     tempIndex = standardSum.index(a+b)
     #print "index = ", tempIndex
-    color = standardColors[tempIndex]
+    color = standardColors4[tempIndex]
     
     return color
 
@@ -502,6 +483,7 @@ def mouseClick(imgClick,nbrClick):
     return x,y
 
 def etablishCodeLink(code,x,y):
+    "establish the link between the standard used and the code used by the program"
     listDiff= []
     for i in range (len(x)):        
         listDiff.append(code[x[i],y[i]])
@@ -523,8 +505,9 @@ def standardCode(img,listDiff):
      return imgStandard,standard
 
 def customColorMap():
+    "Make a standard color map to standardise lumina,cancer,nuclear, stroma colors"
     # make a color map of fixed colors
-    cmap = colors.ListedColormap(['black','LightYellow','brown','blue','Silver'])#in order = 8,10,15,20,25
+    cmap = colors.ListedColormap(['white','orange','brown','blue','Silver'])
     #bounds=[-1,9,13,18,23,28] #standard
     bounds=[-1,9,13,110,1010,10010] #standard
 
@@ -548,7 +531,7 @@ def closeFiles(mon_fichier,mon_fichier2,mon_fichier3,mon_fichier4):
     return
 
 def fileChooserTinker():
-    "Window to allow image selection"
+    "Window to allow selection of image to be procesed "
     custom = False
 
     root = Tkinter.Tk()
@@ -561,10 +544,10 @@ def fileChooserTinker():
     return file,custom
 
 def main():
-    
     tmps1 = time.clock()
     mon_fichier,mon_fichier2,mon_fichier3,mon_fichier4 = initFiles() #initialize outputfiles
-    clusters = 4    
+    clusters = 4 
+    threshold = 5 #Minimal radius for circles
     cmap_Custom,Norm = customColorMap()#create custom color map
     mon_fichier2.write("Temps Initialisation = " + str (time.clock()-tmps1))
     
@@ -573,7 +556,7 @@ def main():
     tmps1 = time.clock()
     img = loadImages(imgPath,custom) #load img
     mon_fichier2.write("Temps Chargement Img = " + str (time.clock()-tmps1))
-
+    print "Image loaded + Init complete"
     #mon_fichier.write("Original Image :"+str(img.dtype) + str(type(img))+ str(img.shape)+ "\n")
     #mon_fichier.write("imgHSV : "+ str(imgHSV.dtype) +str(type(imgHSV)) + str(imgHSV.shape)+"\n")
     #mon_fichier.write("pixel test HSV = "+ str(imgHSV[imgHSV.shape[0]/2,imgHSV.shape[1]/2,:])+"\n")
@@ -582,52 +565,47 @@ def main():
     tmps1 = time.clock()
     imgHSV = convertHSV(img)
     mon_fichier2.write("Temps ConversionHSV = " + str (time.clock()-tmps1))
+    print "Convert RGB to HSV complete"
     
     "Color Clustering"
     tmps1=time.clock()
     imgClus,code,standardCode = clustering(imgHSV,clusters)
     mon_fichier2.write("Clustering = " + str (time.clock()-tmps1) + "\n")
+    print "Clustering Complete"
     
     "Denoise a first time"
-    code = median2(code, size = 5)
+    code = median2(code, size = 3)
+    print "Median denoisig complete"
     
     "Color Standardisation for lumina,cancer,Nuclear and stromal parts"
-    #code2 = code.astype(np.uint8)
     print code.shape ,  nbrDiff(code)
     imgClus = convertHSVtoRGB(imgClus)
     x,y = mouseClick(imgClus,clusters)
     listDiff = etablishCodeLink(code,x,y)
-    
-
     clusStandard,standard = standardCode(code,listDiff)
     print "ClusStandard = " , nbrDiff(clusStandard)
-    
+    print "Color standisation complete"
+
     "Noise Removal"
     tmps1 = time.clock()
     morpho = morphoNoiseRemoval(clusStandard)
-    print "morpho = " , nbrDiff(morpho)
-
+    #print "morpho = " , nbrDiff(morpho)
     #mon_fichier.write("Code = " + str(code.dtype)+str( type(code))+str(code.shape))
     mon_fichier2.write("Noise Removal = " + str(time.clock()-tmps1)+ "\n")
-    
-    """
-    window1 = plt.figure(1)
-    plt.title('IMG Cercle Standard')
-    plt.imshow(morphoStandard,origin = 'lower',interpolation = 'nearest',cmap= cmap_Custom,norm = Norm)
-    plt.colorbar()
-    plt.show()
-    """
+    print "Noise removal (opening/closing) complete"
     
     "Calculate Circle placement position"
     tmps1=time.clock()
-    lcircle = circularizationDistMap(morpho,standard,mon_fichier)
+    lcircle = circularizationDistMap(morpho,standard,mon_fichier,threshold)
     mon_fichier2.write("Circularization = " + str(time.clock()-tmps1) + "\n")
+    print "Circularisation complete"
     
     "Create img composed of circles"
     tmps1 = time.clock()
     imgCirc = formationImgCercle (lcircle,morpho,mon_fichier)
     mon_fichier2.write("formation Img Cercle = " + str(time.clock()-tmps1) + "\n")
-
+    print "Image Circle formed"
+    
     #x,y = mouseClick(imgCirc,5)
     #cens,edg,tri,neig = delaunayTriangulation(lcircle)
     #delaunayTriangulation2(lcircle)
@@ -637,22 +615,18 @@ def main():
     tmps1 = time.clock()
     tri,coordCentersX,coordCentersY,points = delaunayTriangulation3(lcircle,mon_fichier3)
     mon_fichier2.write("Triangulation Delaunay = " + str(time.clock()-tmps1) + "\n")
+    print "Delaunay Triangulation complete"
     
     "Colorisation de la triangulation"
-    colorizedDelaunay(tri,coordCentersX,coordCentersY,lcircle)
+    #colorizedDelaunay(tri,coordCentersX,coordCentersY,lcircle)
     #colorizedDelaunay2(tri,coordCentersX,coordCentersY,lcircle,imgCirc)
-    graph,pointsTemp = colorizedDelaunay3(tri,coordCentersX,coordCentersY,lcircle,imgCirc,points,mon_fichier4)
+    graph,pointsTemp,colorEdges = colorizedDelaunay3(tri,coordCentersX,coordCentersY,lcircle,imgCirc,points,mon_fichier4)
     mon_fichier2.write("Triangulation Delaunay = " + str(time.clock()-tmps1) + "\n")
+    print "Colorised Delaunay Triangulation complete"
 
-
-    """
-    #circularization(code)
-    #imgClus2 = convertHSVtoRGB(clustering2(imgHSV,clusters))
-    kmeanHSV1 = kmeansAlgo(imgHSV)
-    kmean2 = kmeansAlgo2(img)
-    kmeanHSV2 = kmeansAlgo2(imgHSV)
-    #imgLAB = convertLAB(img) 
-    """
+    "Closes the files openend for output stream"
+    closeFiles(mon_fichier,mon_fichier2,mon_fichier3,mon_fichier4)
+    print "After Closing output files"
     
     window1 = plt.figure(1)
     plt.title('IMG Cercle')
@@ -662,17 +636,27 @@ def main():
     window1 = plt.figure(3)
     plt.title('IMG Originale')
     plt.imshow(img,origin='lower', interpolation = 'nearest')
-
-
-    showColorisedDelaunayGraph(graph,pointsTemp) 
     
-    "Closes the files openend for output stream"
-    closeFiles(mon_fichier,mon_fichier2,mon_fichier3,mon_fichier4)
+    window1 = plt.figure(4)
+    plt.title('IMG Clusterised')
+    plt.imshow(imgClus,interpolation = 'nearest')
+    
+    window = plt.figure(5)
+    plt.imshow(morpho,interpolation = 'nearest')
+    plt.title('After opening/closing')
+    
+    window = plt.figure(6)
+    plt.triplot(coordCentersX, coordCentersY, tri.vertices.copy())#manage triangle edges color here
+    plt.plot(coordCentersX, coordCentersY, 'o', markersize=1,markerfacecolor='green', markeredgecolor='red')
+    plt.title('Delaunay Triangulation Basic')
+    
+    showColorisedDelaunayGraph(graph,pointsTemp)
 
-    return
+    return 0
 
 if __name__ == "__main__":
     main()
+    sys.exit()
 
 
     
