@@ -155,22 +155,22 @@ def clustering2(img,clusters):
     #From 1792x1792x3 to 1792^2x3
     pixels = np.reshape(img,(img.shape[0]*img.shape[1],3))
     centroids,_ = kmeans2(pixels,3,iter=3,minit= 'random')
-    print ("Centroids : ",centroids.dtype,centroids.shape,type(centroids))
-    print centroids
+    #print ("Centroids : ",centroids.dtype,centroids.shape,type(centroids))
+    #print centroids
     # quantization
     #Assigns a code from a code book to each observation
     #code : A length N array holding the code book index for each observation.
     #dist : The distortion (distance) between the observation and its nearest code.
     code,_ = vq(pixels,centroids)
-    print ("Code : ",code.dtype,code.shape,type(code))
-    print code
+    #print ("Code : ",code.dtype,code.shape,type(code))
+    #print code
 
     # reshaping the result of the quantization
     reshaped = np.reshape(code,(img.shape[0],img.shape[1]))
-    print ("reshaped : ",reshaped.dtype,reshaped.shape,type(reshaped))
+    #print ("reshaped : ",reshaped.dtype,reshaped.shape,type(reshaped))
 
     clustered = centroids[reshaped]
-    print ("clustered : ",clustered.dtype,clustered.shape,type(clustered))
+    #print ("clustered : ",clustered.dtype,clustered.shape,type(clustered))
     
     #scatter3D(centroids)
     return clustered
@@ -205,7 +205,7 @@ def circularizationDistMap(img,standard,mon_fichier,threshold):
     go = True
     listCircle = []
 
-    print("nbrDiff(img) = ", nbrDiff(img))
+    #print("nbrDiff(img) = ", nbrDiff(img))
 
     print "Go circularization"
     
@@ -432,11 +432,11 @@ def colorChoice(a,b):
                       ]
     standardColors4 = ['black',
                       'White', #a-a
-                      'White', #a-b
-                      'White',#a-c
+                      'brown', #a-b
+                      'blue',#a-c
                       'White',#a-d
                       'brown',#b-b
-                      'DarkViolet',#b-c
+                      'brown',#b-c
                       'Chocolate',#b-d
                       'blue',#c-c
                       'green',#c-d
@@ -478,7 +478,7 @@ def mouseClick(imgClick,nbrClick):
         #i hate you ginput
         #listDiff.append(imgClick[x[i],y[i]])
     
-    print imgClick[x[0],y[0]],imgClick[x[1],y[1]],imgClick[x[2],y[2]],imgClick[x[3],y[3]]#,imgClick[x[4],y[4]]
+    #print imgClick[x[0],y[0]],imgClick[x[1],y[1]],imgClick[x[2],y[2]],imgClick[x[3],y[3]]#,imgClick[x[4],y[4]]
     
     return x,y
 
@@ -501,7 +501,7 @@ def standardCode(img,listDiff):
         for j in range (img.shape[1]):
             imgStandard[i,j] = standard[listDiff.index(img[i,j])]
             
-     print listDiff
+     #print listDiff
      return imgStandard,standard
 
 def customColorMap():
@@ -574,16 +574,19 @@ def main():
     print "Clustering Complete"
     
     "Denoise a first time"
+    tmps1 = time.clock()
     code = median2(code, size = 3)
+    mon_fichier2.write("Median denoising = " + str (time.clock()-tmps1) + "\n")
+
     print "Median denoisig complete"
     
     "Color Standardisation for lumina,cancer,Nuclear and stromal parts"
-    print code.shape ,  nbrDiff(code)
+    #print code.shape ,  nbrDiff(code)
     imgClus = convertHSVtoRGB(imgClus)
     x,y = mouseClick(imgClus,clusters)
     listDiff = etablishCodeLink(code,x,y)
     clusStandard,standard = standardCode(code,listDiff)
-    print "ClusStandard = " , nbrDiff(clusStandard)
+    #print "ClusStandard = " , nbrDiff(clusStandard)
     print "Color standisation complete"
 
     "Noise Removal"
@@ -591,7 +594,7 @@ def main():
     morpho = morphoNoiseRemoval(clusStandard)
     #print "morpho = " , nbrDiff(morpho)
     #mon_fichier.write("Code = " + str(code.dtype)+str( type(code))+str(code.shape))
-    mon_fichier2.write("Noise Removal = " + str(time.clock()-tmps1)+ "\n")
+    mon_fichier2.write("Noise Removal open/close = " + str(time.clock()-tmps1)+ "\n")
     print "Noise removal (opening/closing) complete"
     
     "Calculate Circle placement position"
@@ -621,7 +624,7 @@ def main():
     #colorizedDelaunay(tri,coordCentersX,coordCentersY,lcircle)
     #colorizedDelaunay2(tri,coordCentersX,coordCentersY,lcircle,imgCirc)
     graph,pointsTemp,colorEdges = colorizedDelaunay3(tri,coordCentersX,coordCentersY,lcircle,imgCirc,points,mon_fichier4)
-    mon_fichier2.write("Triangulation Delaunay = " + str(time.clock()-tmps1) + "\n")
+    mon_fichier2.write("Triangulation Delaunay Colorised = " + str(time.clock()-tmps1) + "\n")
     print "Colorised Delaunay Triangulation complete"
 
     "Closes the files openend for output stream"
@@ -642,7 +645,7 @@ def main():
     plt.imshow(imgClus,interpolation = 'nearest')
     
     window = plt.figure(5)
-    plt.imshow(morpho,interpolation = 'nearest')
+    plt.imshow(morpho,interpolation = 'nearest',cmap= cmap_Custom,norm = Norm)
     plt.title('After opening/closing')
     
     window = plt.figure(6)
@@ -680,4 +683,3 @@ if __name__ == "__main__":
     plt.title("After Clustering2")
     plt.show()
     """
-
